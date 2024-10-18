@@ -174,7 +174,8 @@ class Templater(LoggingMixin):
         if isinstance(value, ObjectStoragePath):
             return self._render_object_storage_path(value, context, jinja_env)
         if isinstance(value, ResolveMixin):
-            return value.resolve(context, include_xcom=True)
+            # TODO: Task-SDK: Tidy up the typing on template context
+            return value.resolve(context, include_xcom=True)  # type: ignore[arg-type]
 
         # Fast path for common built-in collections.
         if value.__class__ is tuple:
@@ -193,7 +194,7 @@ class Templater(LoggingMixin):
         return value
 
     def _render_object_storage_path(
-        self, value: ObjectStoragePath, context: Context, jinja_env: jinja2.Environment
+        self, value: ObjectStoragePath, context: Mapping[str, Any], jinja_env: jinja2.Environment
     ) -> ObjectStoragePath:
         serialized_path = value.serialize()
         path_version = value.__version__
@@ -203,7 +204,7 @@ class Templater(LoggingMixin):
     def _render_nested_template_fields(
         self,
         value: Any,
-        context: Context,
+        context: Mapping[str, Any],
         jinja_env: jinja2.Environment,
         seen_oids: set[int],
     ) -> None:

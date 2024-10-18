@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Iterable
 
 if TYPE_CHECKING:
+    from airflow.models.operator import Operator
     from airflow.serialization.enums import DagAttributeTypes
     from airflow.typing_compat import TypeAlias
 
@@ -35,7 +36,7 @@ class DAGNode(airflow.sdk.definitions.node.DAGNode):
     A node may be an Operator or a Task Group, either mapped or unmapped.
     """
 
-    def get_direct_relatives(self, upstream: bool = False) -> Iterable[DAGNode]:
+    def get_direct_relatives(self, upstream: bool = False) -> Iterable[Operator]:
         """Get list of the direct relatives to the current task, upstream or downstream."""
         if upstream:
             return self.upstream_list

@@ -55,6 +55,7 @@ from airflow.task.priority_strategy import (
     airflow_priority_weight_strategies,
     validate_and_load_priority_weight_strategy,
 )
+from airflow.utils import timezone
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.utils.types import AttributeRemoved
 
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
     from airflow.models.xcom_arg import XComArg
     from airflow.sdk.definitions.dag import DAG
     from airflow.sdk.definitions.taskgroup import TaskGroup
+    from airflow.serialization.enums import DagAttributeTypes
     from airflow.utils.operator_resources import Resources
 
 # TODO: Task-SDK
@@ -517,7 +519,9 @@ class BaseOperator(AbstractOperator, metaclass=BaseOperatorMeta):
     params: ParamsDict | dict = field(default_factory=ParamsDict)
     default_args: dict | None = None
     priority_weight: int = DEFAULT_PRIORITY_WEIGHT
-    weight_rule: PriorityWeightStrategy = airflow_priority_weight_strategies[DEFAULT_WEIGHT_RULE]
+    weight_rule: PriorityWeightStrategy = field(
+        default_factory=airflow_priority_weight_strategies[DEFAULT_WEIGHT_RULE]
+    )
     queue: str = DEFAULT_QUEUE
     pool: str = "default"
     pool_slots: int = DEFAULT_POOL_SLOTS
@@ -726,14 +730,10 @@ class BaseOperator(AbstractOperator, metaclass=BaseOperatorMeta):
         # self._post_execute_hook = post_execute
 
         if start_date:
-            # TODO: Task-SDK
-            # self.start_date = timezone.convert_to_utc(start_date)
-            self.start_date = start_date
+            self.start_date = timezone.convert_to_utc(start_date)
 
         if end_date:
-            # TODO: Task-SDK
-            # self.end_date = timezone.convert_to_utc(end_date)
-            self.end_date = end_date
+            self.end_date = timezone.convert_to_utc(end_date)
 
         if executor:
             warnings.warn(
@@ -1137,9 +1137,11 @@ class BaseOperator(AbstractOperator, metaclass=BaseOperatorMeta):
 
         return cls.__serialized_fields
 
-    # def serialize_for_task_group(self) -> tuple[DagAttributeTypes, Any]:
-    #     """Serialize; required by DAGNode."""
-    #     return DagAttributeTypes.OP, self.task_id
+    def serialize_for_task_group(self) -> tuple[DagAttributeTypes, Any]:
+        """Serialize; required by DAGNode."""
+        from airflow.serialization.enums import DagAttributeTypes
+
+        return DagAttributeTypes.OP, self.task_id
 
     @property
     def inherits_from_empty_operator(self):

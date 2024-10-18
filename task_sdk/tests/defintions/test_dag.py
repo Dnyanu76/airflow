@@ -29,6 +29,36 @@ DEFAULT_DATE = datetime(2016, 1, 1, tzinfo=timezone.utc)
 
 
 class TestDag:
+    def test_dag_topological_sort_dag_without_tasks(self):
+        dag = DAG("dag", schedule=None, start_date=DEFAULT_DATE, default_args={"owner": "owner1"})
+
+        assert () == dag.topological_sort()
+
+    def test_dag_naive_start_date_string(self):
+        DAG("DAG", schedule=None, default_args={"start_date": "2019-06-01"})
+
+    def test_dag_naive_start_end_dates_strings(self):
+        DAG("DAG", schedule=None, default_args={"start_date": "2019-06-01", "end_date": "2019-06-05"})
+
+    def test_dag_start_date_propagates_to_end_date(self):
+        """
+        Tests that a start_date string with a timezone and an end_date string without a timezone
+        are accepted and that the timezone from the start carries over the end
+
+        This test is a little indirect, it works by setting start and end equal except for the
+        timezone and then testing for equality after the DAG construction.  They'll be equal
+        only if the same timezone was applied to both.
+
+        An explicit check the `tzinfo` attributes for both are the same is an extra check.
+        """
+        dag = DAG(
+            "DAG",
+            schedule=None,
+            default_args={"start_date": "2019-06-05T00:00:00+05:00", "end_date": "2019-06-05T00:00:00"},
+        )
+        assert dag.default_args["start_date"] == dag.default_args["end_date"]
+        assert dag.default_args["start_date"].tzinfo == dag.default_args["end_date"].tzinfo
+
     def test_dag_as_context_manager(self):
         """
         Test DAG as a context manager.
@@ -168,3 +198,8 @@ class TestDag:
         assert op1 == op2
         assert dag.task_dict == {op1.task_id: op1, op3.task_id: op3}
         assert dag.task_dict == {op2.task_id: op2, op3.task_id: op3}
+
+    def test_fail_dag_when_schedule_is_non_none_and_empty_start_date(self):
+        # Check that we get a ValueError 'start_date' for self.start_date when schedule is non-none
+        with pytest.raises(ValueError, match="start_date is required when catchup=True"):
+            DAG(dag_id="dag_with_non_none_schedule_and_empty_start_date", schedule="@hourly", catchup=True)

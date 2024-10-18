@@ -183,6 +183,24 @@ class TestBaseOperator:
         op = BaseOperator(task_id="test_task", weight_rule="upstream")
         assert _UpstreamPriorityWeightStrategy() == op.weight_rule
 
+    def test_dag_task_invalid_weight_rule(self):
+        # Test if we enter an invalid weight rule
+        with pytest.raises(ValueError):
+            BaseOperator(task_id="should_fail", weight_rule="no rule")
+
+    def test_dag_task_not_registered_weight_strategy(self):
+        from airflow.task.priority_strategy import PriorityWeightStrategy
+
+        class NotRegisteredPriorityWeightStrategy(PriorityWeightStrategy):
+            def get_weight(self, ti):
+                return 99
+
+        with pytest.raises(ValueError, match="Unknown priority strategy"):
+            BaseOperator(
+                task_id="empty_task",
+                weight_rule=NotRegisteredPriorityWeightStrategy(),
+            )
+
     def test_warnings_are_properly_propagated(self):
         with pytest.warns(DeprecationWarning) as warnings:
             DeprecatedOperator(task_id="test")
@@ -255,25 +273,20 @@ class TestBaseOperator:
 
 def test_init_subclass_args():
     class InitSubclassOp(BaseOperator):
-        _class_arg: Any
+        class_arg: Any
 
         def __init_subclass__(cls, class_arg=None, **kwargs) -> None:
-            cls._class_arg = class_arg
+            cls.class_arg = class_arg
             super().__init_subclass__()
 
-        def execute(self, context: Context):
-            self.context_arg = context
-
     class_arg = "foo"
-    context = {"key": "value"}
 
     class ConcreteSubclassOp(InitSubclassOp, class_arg=class_arg):
         pass
 
     task = ConcreteSubclassOp(task_id="op1")
 
-    assert task._class_arg == class_arg
-    assert task.context_arg == context
+    assert task.class_arg == class_arg
 
 
 class CustomInt(int):

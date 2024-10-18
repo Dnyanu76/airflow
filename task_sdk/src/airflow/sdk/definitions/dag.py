@@ -22,12 +22,11 @@ import functools
 import itertools
 import logging
 import os
-import pathlib
 import sys
 import weakref
 from collections import abc
-from collections.abc import Collection, Iterable, Iterator
-from datetime import datetime, timedelta, timezone
+from collections.abc import Collection, Iterable, Iterator, MutableSet
+from datetime import datetime, timedelta
 from inspect import signature
 from re import Pattern
 from typing import (
@@ -45,7 +44,6 @@ import jinja2
 import re2
 from dateutil.relativedelta import relativedelta
 
-import airflow.templates
 from airflow import settings
 from airflow.assets import Asset, AssetAlias, BaseAsset
 from airflow.configuration import conf as airflow_conf
@@ -78,7 +76,6 @@ if TYPE_CHECKING:
     from airflow.decorators import TaskDecoratorCollection
     from airflow.models.operator import Operator
     from airflow.sdk.definitions.taskgroup import TaskGroup
-    from airflow.sdk.definitions.node import DAGNode
     from airflow.typing_compat import Self
 
 
@@ -147,7 +144,6 @@ DAG_ARGS_EXPECTED_TYPES = {
 
 def _create_timetable(interval: ScheduleInterval, timezone: Timezone | FixedTimezone) -> Timetable:
     """Create a Timetable instance from a plain ``schedule`` value."""
-
     from airflow.configuration import conf as airflow_conf
     from airflow.timetables.interval import CronDataIntervalTimetable, DeltaDataIntervalTimetable
     from airflow.timetables.trigger import CronTriggerTimetable
@@ -174,7 +170,6 @@ def _convert_params(val: abc.MutableMapping | None, self_: DAG) -> ParamsDict:
 
     This will also merge in params from default_args
     """
-
     val = val or {}
 
     # merging potentially conflicting default_args['params'] into params
@@ -188,6 +183,16 @@ def _convert_params(val: abc.MutableMapping | None, self_: DAG) -> ParamsDict:
     return params
 
 
+def _convert_str_to_tuple(val: str | Iterable[str] | None) -> Iterable[str] | None:
+    if isinstance(val, str):
+        return (val,)
+    return val
+
+
+def _convert_tags(tags: Collection[str] | None) -> MutableSet[str]:
+    return set(tags or [])
+
+
 def _all_after_dag_id_to_kw_only(cls, fields: list[attrs.Attribute]):
     i = iter(fields)
     f = next(i)
@@ -197,6 +202,20 @@ def _all_after_dag_id_to_kw_only(cls, fields: list[attrs.Attribute]):
 
     for f in i:
         yield f.evolve(kw_only=True)
+
+
+if TYPE_CHECKING:
+    # Given this attrs field:
+    #
+    #   default_args: dict[str, Any] = attrs.field(factory=dict, converter=copy.copy)
+    #
+    # mypy ignores the type of the attrs and works out the type as the converter function. However it doesn't
+    # cope with generics properly and errors with 'incompatible type "dict[str, object]"; expected "_T"'
+    #
+    # https://github.com/python/mypy/issues/8625
+    def dict_copy(_: dict[str, Any]) -> dict[str, Any]: ...
+else:
+    dict_copy = copy.copy
 
 
 @attrs.define(repr=False, field_transformer=_all_after_dag_id_to_kw_only)
@@ -327,36 +346,42 @@ class DAG:
     # below in sync. (Search for 'def dag(' in this file.)
     dag_id: str = attrs.field(kw_only=False)
     description: str | None = None
-    start_date: datetime | None = None
+    default_args: dict[str, Any] = attrs.field(
+        factory=dict, validator=attrs.validators.instance_of(dict), converter=dict_copy
+    )
+    start_date: datetime | None = attrs.field()
     end_date: datetime | None = None
-    timezone: timezone = timezone.utc
+    timezone: FixedTimezone | Timezone = attrs.field(init=False)
     schedule: ScheduleArg = attrs.field(default=None, on_setattr=attrs.setters.frozen)
     timetable: Timetable = attrs.field(init=False)
     full_filepath: str | None = None
-    template_searchpath: str | Iterable[str] | None = None
+    template_searchpath: str | Iterable[str] | None = attrs.field(
+        default=None, converter=_convert_str_to_tuple
+    )
     # TODO: Task-SDK: Work out how to not import jinj2 until we need it! It's expensive
     template_undefined: type[jinja2.StrictUndefined] = jinja2.StrictUndefined
     user_defined_macros: dict | None = None
     user_defined_filters: dict | None = None
-    default_args: dict[str, Any] = attrs.field(factory=dict, converter=copy.copy)
     concurrency: int | None = None
     max_active_tasks: int = 16
     max_active_runs: int = 16
     max_consecutive_failed_dag_runs: int = -1
     dagrun_timeout: timedelta | None = None
     # sla_miss_callback: None | SLAMissCallback | list[SLAMissCallback] = None
-    catchup: bool = True
+    catchup: bool = attrs.field(default=True)
     # on_success_callback: None | DagStateChangeCallback | list[DagStateChangeCallback] = None
     # on_failure_callback: None | DagStateChangeCallback | list[DagStateChangeCallback] = None
     doc_md: str | None = None
     params: ParamsDict = attrs.field(
-        default=None, converter=attrs.Converter(_convert_params, takes_self=True)
+        # mypy doesn't really like passing the Converter object
+        default=None,
+        converter=attrs.Converter(_convert_params, takes_self=True),  # type: ignore[misc, call-overload]
     )
     access_control: dict | None = None
     is_paused_upon_creation: bool | None = None
     jinja_environment_kwargs: dict | None = None
     render_template_as_native_obj: bool = False
-    tags: list[str] | None = None
+    tags: MutableSet[str] = attrs.field(factory=set, converter=_convert_tags)
     owner_links: dict[str, str] = attrs.field(factory=dict)
     auto_register: bool = True
     fail_stop: bool = False
@@ -370,6 +395,16 @@ class DAG:
     partial: bool = attrs.field(init=False, default=False)
 
     edge_info: dict[str, dict[str, EdgeInfoType]] = attrs.field(init=False, factory=dict)
+
+    def __attrs_post_init__(self):
+        from airflow.utils import timezone
+
+        # Apply the timezone we settled on to end_date if it wasn't supplied
+        if isinstance(_end_date := self.default_args.get("end_date"), str):
+            self.default_args["end_date"] = timezone.parse(_end_date, timezone=self.timezone)
+
+        self.start_date = timezone.convert_to_utc(self.start_date)
+        self.end_date = timezone.convert_to_utc(self.end_date)
 
     @fileloc.default
     def _default_fileloc(self) -> str:
@@ -392,6 +427,8 @@ class DAG:
 
     @timetable.default
     def _default_timetable(self):
+        from airflow.assets import AssetAll
+
         schedule = self.schedule
         delattr(self, "schedule")
         if isinstance(schedule, Timetable):
@@ -404,6 +441,31 @@ class DAG:
             return AssetTriggeredTimetable(AssetAll(*schedule))
         else:
             return _create_timetable(schedule, self.timezone)
+
+    @start_date.default
+    def _default_start_date(self):
+        # Find start date inside default_args for compat with Airflow 2.
+        from airflow.utils import timezone
+
+        if date := self.default_args.get("start_date"):
+            if not isinstance(date, datetime):
+                date = timezone.parse(date)
+                self.default_args["start_date"] = date
+            return date
+        return None
+
+    @timezone.default
+    def _extract_tz(self):
+        import pendulum
+
+        from airflow.utils import timezone
+
+        # TODO: Task-SDK: get default dag tz from settins
+        tz = timezone.utc
+        if self.start_date and (tzinfo := self.start_date.tzinfo):
+            tzinfo = None if tzinfo else tz
+            tz = pendulum.instance(self.start_date, tz=tzinfo).timezone
+        return tz
 
     @params.validator
     def _validate_params(self, _, params: ParamsDict):
@@ -419,9 +481,15 @@ class DAG:
             params.validate()
         except ParamValidationError as pverr:
             raise ValueError(
-                f"DAG {self_.dag_id!r} is not allowed to define a Schedule, "
+                f"DAG {self.dag_id!r} is not allowed to define a Schedule, "
                 "as there are required params without default values, or the default values are not valid."
             ) from pverr
+
+    @catchup.validator
+    def _validate_catchup(self, _, catchup: bool):
+        requires_automatic_backfilling = self.timetable.can_be_scheduled and catchup
+        if requires_automatic_backfilling and not ("start_date" in self.default_args or self.start_date):
+            raise ValueError("start_date is required when catchup=True")
 
     def __repr__(self):
         return f"<DAG: {self.dag_id}>"
@@ -554,6 +622,8 @@ class DAG:
 
     def get_template_env(self, *, force_sandboxed: bool = False) -> jinja2.Environment:
         """Build a Jinja2 environment."""
+        import airflow.templates
+
         # Collect directories to search for template files
         searchpath = [self.folder]
         if self.template_searchpath:
@@ -603,8 +673,9 @@ class DAG:
 
         Deprecated in place of ``task_group.topological_sort``
         """
-        from airflow.utils.taskgroup import TaskGroup
+        from airflow.sdk.definitions.taskgroup import TaskGroup
 
+        # TODO: Remove in RemovedInAirflow3Warning
         def nested_topo(group):
             for node in group.topological_sort():
                 if isinstance(node, TaskGroup):
@@ -821,7 +892,8 @@ class DAG:
             raise DuplicateTaskIdFound(f"Task id '{task_id}' has already been added to the DAG")
         else:
             self.task_dict[task_id] = task
-            task.dag = self
+            # TODO: Task-SDK: this type ignore shouldn't be needed!
+            task.dag = self  # type: ignore[assignment]
             # Add task_id to used_group_ids to prevent group_id and task_id collisions.
             self.task_group.used_group_ids.add(task_id)
 

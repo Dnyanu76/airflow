@@ -37,7 +37,6 @@ from airflow.exceptions import (
     TaskAlreadyInTaskGroup,
 )
 from airflow.sdk.definitions.node import DAGNode
-from airflow.serialization.enums import DagAttributeTypes
 
 if TYPE_CHECKING:
     from airflow.models.expandinput import ExpandInput
@@ -46,6 +45,7 @@ if TYPE_CHECKING:
     from airflow.sdk.definitions.dag import DAG
     from airflow.sdk.definitions.edges import EdgeModifier
     from airflow.sdk.definitions.mixins import DependencyMixin
+    from airflow.serialization.enums import DagAttributeTypes
 
 # TODO: The following mapping is used to validate that the arguments passed to the TaskGroup are of the
 #  correct type. This is a temporary solution until we find a more sophisticated method for argument
@@ -438,6 +438,7 @@ class TaskGroup(DAGNode):
 
     def serialize_for_task_group(self) -> tuple[DagAttributeTypes, Any]:
         """Serialize task group; required by DAGNode."""
+        from airflow.serialization.enums import DagAttributeTypes
         from airflow.serialization.serialized_objects import TaskGroupSerialization
 
         return DagAttributeTypes.TASK_GROUP, TaskGroupSerialization.serialize_task_group(self)

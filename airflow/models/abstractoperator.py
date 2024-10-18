@@ -28,7 +28,7 @@ from sqlalchemy import select
 from airflow.configuration import conf
 from airflow.exceptions import AirflowException
 from airflow.models.expandinput import NotFullyPopulated
-from airflow.models.taskmixin import DAGNode, DependencyMixin
+from airflow.models.taskmixin import DependencyMixin
 from airflow.sdk.definitions.abstractoperator import AbstractOperator as TaskSDKAbstractOperator
 from airflow.template.templater import Templater
 from airflow.utils.context import Context
@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from airflow.models.operator import Operator
     from airflow.models.taskinstance import TaskInstance
     from airflow.sdk import BaseOperator, DAG
+    from airflow.sdk.defintions.node import DAGNode
     from airflow.task.priority_strategy import PriorityWeightStrategy
     from airflow.triggers.base import StartTriggerArgs
     from airflow.utils.task_group import TaskGroup
@@ -379,7 +380,9 @@ class AbstractOperator(Templater, TaskSDKAbstractOperator):
         """
         if (group := self.task_group) is None:
             return
-        yield from group.iter_mapped_task_groups()
+        # TODO: Task-SDK: this type ignore shouldn't be necssary, revisit once mapping support is fully in the
+        # SDK
+        yield from group.iter_mapped_task_groups()  # type: ignore[misc]
 
     def get_closest_mapped_task_group(self) -> MappedTaskGroup | None:
         """

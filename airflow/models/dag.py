@@ -423,6 +423,13 @@ class DAG(TaskSDKDag, LoggingMixin):
     default_view: str = airflow_conf.get_mandatory_value("webserver", "dag_default_view").lower()
     orientation: str = airflow_conf.get_mandatory_value("webserver", "dag_orientation")
 
+    # Override the default from parent class to use config
+    max_consecutive_failed_dag_runs: int = attrs.field()
+
+    @max_consecutive_failed_dag_runs.default
+    def _max_consecutive_failed_dag_runs_default(self):
+        return airflow_conf.getint("core", "max_consecutive_failed_dag_runs_per_dag")
+
     # this will only be set at serialization time
     # it's only use is for determining the relative fileloc based only on the serialize dag
     _processor_dags_folder: str | None = attrs.field(init=False, default=None)
@@ -611,7 +618,7 @@ class DAG(TaskSDKDag, LoggingMixin):
         earliest = None
         if start_dates:
             earliest = timezone.coerce_datetime(min(start_dates))
-        latest = self.end_date
+        latest = timezone.coerce_datetime(self.end_date)
         end_dates = [t.end_date for t in self.tasks if t.end_date]
         if len(end_dates) == len(self.tasks):  # not exists null end_date
             if self.end_date is not None:

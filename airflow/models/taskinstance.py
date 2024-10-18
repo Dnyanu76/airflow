@@ -929,7 +929,7 @@ def _clear_next_method_args(*, task_instance: TaskInstance | TaskInstancePydanti
 def _get_template_context(
     *,
     task_instance: TaskInstance | TaskInstancePydantic,
-    dag: DAG,
+    dag: SchedulerDAG,
     session: Session | None = None,
     ignore_param_exceptions: bool = True,
 ) -> Context:
@@ -1318,8 +1318,10 @@ def _record_task_map_for_downstreams(
     """
     from airflow.models.mappedoperator import MappedOperator
 
+    # TODO: Task-SDK: Remove this after AIP-44 code is removed
     if task.dag.__class__ is AttributeRemoved:
-        task.dag = dag  # required after deserialization
+        # required after deserialization
+        task.dag = dag  # type: ignore[assignment]
 
     if next(task.iter_mapped_dependants(), None) is None:  # No mapped dependants, no need to validate.
         return

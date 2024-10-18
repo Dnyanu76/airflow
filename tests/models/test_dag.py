@@ -173,64 +173,6 @@ class TestDag:
                 b_index = i
         return 0 <= a_index < b_index
 
-    def test_dag_invalid_default_view(self):
-        """
-        Test invalid `default_view` of DAG initialization
-        """
-        with pytest.raises(AirflowException, match="Invalid values of dag.default_view: only support"):
-            DAG(dag_id="test-invalid-default_view", schedule=None, default_view="airflow")
-
-    def test_dag_default_view_default_value(self):
-        """
-        Test `default_view` default value of DAG initialization
-        """
-        dag = DAG(dag_id="test-default_default_view", schedule=None)
-        assert conf.get("webserver", "dag_default_view").lower() == dag.default_view
-
-    def test_dag_invalid_orientation(self):
-        """
-        Test invalid `orientation` of DAG initialization
-        """
-        with pytest.raises(AirflowException, match="Invalid values of dag.orientation: only support"):
-            DAG(dag_id="test-invalid-orientation", schedule=None, orientation="airflow")
-
-    def test_dag_orientation_default_value(self):
-        """
-        Test `orientation` default value of DAG initialization
-        """
-        dag = DAG(dag_id="test-default_orientation", schedule=None)
-        assert conf.get("webserver", "dag_orientation") == dag.orientation
-
-    def test_dag_topological_sort_dag_without_tasks(self):
-        dag = DAG("dag", schedule=None, start_date=DEFAULT_DATE, default_args={"owner": "owner1"})
-
-        assert () == dag.topological_sort()
-
-    def test_dag_naive_start_date_string(self):
-        DAG("DAG", schedule=None, default_args={"start_date": "2019-06-01"})
-
-    def test_dag_naive_start_end_dates_strings(self):
-        DAG("DAG", schedule=None, default_args={"start_date": "2019-06-01", "end_date": "2019-06-05"})
-
-    def test_dag_start_date_propagates_to_end_date(self):
-        """
-        Tests that a start_date string with a timezone and an end_date string without a timezone
-        are accepted and that the timezone from the start carries over the end
-
-        This test is a little indirect, it works by setting start and end equal except for the
-        timezone and then testing for equality after the DAG construction.  They'll be equal
-        only if the same timezone was applied to both.
-
-        An explicit check the `tzinfo` attributes for both are the same is an extra check.
-        """
-        dag = DAG(
-            "DAG",
-            schedule=None,
-            default_args={"start_date": "2019-06-05T00:00:00+05:00", "end_date": "2019-06-05T00:00:00"},
-        )
-        assert dag.default_args["start_date"] == dag.default_args["end_date"]
-        assert dag.default_args["start_date"].tzinfo == dag.default_args["end_date"].tzinfo
-
     def test_dag_naive_default_args_start_date(self):
         dag = DAG("DAG", schedule=None, default_args={"start_date": datetime.datetime(2018, 1, 1)})
         assert dag.timezone == settings.TIMEZONE
@@ -329,12 +271,6 @@ class TestDag:
                 calculated_weight = task.priority_weight_total
                 assert calculated_weight == correct_weight
 
-    def test_dag_task_invalid_weight_rule(self):
-        # Test if we enter an invalid weight rule
-        with DAG("dag", schedule=None, start_date=DEFAULT_DATE, default_args={"owner": "owner1"}):
-            with pytest.raises(AirflowException):
-                EmptyOperator(task_id="should_fail", weight_rule="no rule")
-
     @pytest.mark.parametrize(
         "cls, expected",
         [
@@ -360,16 +296,6 @@ class TestDag:
         )
         ti = dr.get_task_instance(task.task_id)
         assert ti.priority_weight == expected
-
-    def test_dag_task_not_registered_weight_strategy(self):
-        with mock_plugin_manager(plugins=[TestPriorityWeightStrategyPlugin]), DAG(
-            "dag", schedule=None, start_date=DEFAULT_DATE, default_args={"owner": "owner1"}
-        ):
-            with pytest.raises(AirflowException, match="Unknown priority strategy"):
-                EmptyOperator(
-                    task_id="empty_task",
-                    weight_rule=NotRegisteredPriorityWeightStrategy(),
-                )
 
     def test_get_num_task_instances(self):
         test_dag_id = "test_get_num_task_instances_dag"
@@ -674,11 +600,6 @@ class TestDag:
             **triggered_by_kwargs,
         )
         assert dagrun is not None
-
-    def test_fail_dag_when_schedule_is_non_none_and_empty_start_date(self):
-        # Check that we get a ValueError 'start_date' for self.start_date when schedule is non-none
-        with pytest.raises(ValueError, match="start_date is required when catchup=True"):
-            DAG(dag_id="dag_with_non_none_schedule_and_empty_start_date", schedule="@hourly", catchup=True)
 
     def test_dagtag_repr(self):
         clear_db_dags()

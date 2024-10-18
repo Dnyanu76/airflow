@@ -22,7 +22,7 @@ import re
 from abc import ABCMeta, abstractmethod
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import methodtools
 import re2
@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from airflow.sdk.definitions.edges import EdgeModifier
     from airflow.sdk.definitions.taskgroup import TaskGroup
     from airflow.sdk.types import Logger
+    from airflow.serialization.enums import DagAttributeTypes
 
 
 KEY_REGEX = re2.compile(r"^[\w.-]+$")
@@ -210,6 +211,6 @@ class DAGNode(DependencyMixin, metaclass=ABCMeta):
         else:
             return self.downstream_task_ids
 
-    # def serialize_for_task_group(self) -> tuple[DagAttributeTypes, Any]:
-    #     """Serialize a task group's content; used by TaskGroupSerialization."""
-    #     raise NotImplementedError()
+    def serialize_for_task_group(self) -> tuple[DagAttributeTypes, Any]:
+        """Serialize a task group's content; used by TaskGroupSerialization."""
+        raise NotImplementedError()
